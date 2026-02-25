@@ -1,31 +1,32 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Kölner Zoo – interaktive Tier-Auswahl</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kölner Zoo – interaktive Tierkarte</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <style>
-    html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:#0b1220;color:#fff;}
-    .app{height:100%;display:grid;grid-template-columns:320px 1fr;}
-    .sidebar{background:#121a2c;padding:15px;overflow:auto;}
-    .sidebar h1{font-size:18px;margin:0 0 10px;}
-    .list{margin-top:10px;}
-    .item{padding:6px;}
-    #map{height:100%;}
-    button{margin:3px 0;padding:6px;width:100%;cursor:pointer;}
-  </style>
+<style>
+html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:#0b1220;color:white;}
+.app{display:grid;grid-template-columns:320px 1fr;height:100%;}
+.sidebar{background:#121a2c;padding:15px;overflow:auto;}
+.sidebar h1{font-size:18px;margin-bottom:10px;}
+button{width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:6px;cursor:pointer;}
+button:hover{background:#2a3a60;color:white;}
+.item{margin:4px 0;}
+#map{width:100%;height:100%;}
+</style>
 </head>
+
 <body>
 <div class="app">
   <div class="sidebar">
     <h1>Tiere auswählen</h1>
     <button onclick="showAll()">Alle anzeigen</button>
     <button onclick="hideAll()">Alle ausblenden</button>
-    <div class="list" id="animalList"></div>
+    <div id="animalList"></div>
   </div>
   <div id="map"></div>
 </div>
@@ -36,10 +37,14 @@ const animals=[
 {id:"lion",name:"Löwen",emoji:"🦁",lat:50.95905,lng:6.97395},
 {id:"giraffe",name:"Giraffen",emoji:"🦒",lat:50.95825,lng:6.97465},
 {id:"penguin",name:"Pinguine",emoji:"🐧",lat:50.95805,lng:6.97210},
-{id:"hippo",name:"Flusspferde",emoji:"🦛",lat:50.95755,lng:6.97310}
+{id:"hippo",name:"Flusspferde",emoji:"🦛",lat:50.95755,lng:6.97310},
+{id:"tiger",name:"Tiger",emoji:"🐯",lat:50.95925,lng:6.97445},
+{id:"flamingo",name:"Flamingos",emoji:"🦩",lat:50.95810,lng:6.97155}
 ];
 
 const map=L.map('map').setView([50.95833,6.97333],17);
+
+setTimeout(function(){map.invalidateSize();},300);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
 maxZoom:19,
@@ -47,17 +52,15 @@ attribution:'© OpenStreetMap'
 }).addTo(map);
 
 const markers={};
-
 animals.forEach(a=>{
-const m=L.marker([a.lat,a.lng],{
-icon:L.divIcon({html:"<div style='font-size:22px'>"+a.emoji+"</div>"}),
+const marker=L.marker([a.lat,a.lng],{
+icon:L.divIcon({html:"<div style='font-size:22px'>"+a.emoji+"</div>",className:""}),
 opacity:0
 }).addTo(map).bindPopup(a.name);
-markers[a.id]=m;
+markers[a.id]=marker;
 });
 
 const list=document.getElementById("animalList");
-
 animals.forEach(a=>{
 const div=document.createElement("div");
 div.className="item";
@@ -65,23 +68,18 @@ div.innerHTML="<label><input type='checkbox' onchange='toggleAnimal(""+a.id+"",t
 list.appendChild(div);
 });
 
-function toggleAnimal(id,visible){
-markers[id].setOpacity(visible?1:0);
-}
+function toggleAnimal(id,visible){markers[id].setOpacity(visible?1:0);}
 
 function showAll(){
-animals.forEach(a=>{
-markers[a.id].setOpacity(1);
-document.querySelectorAll("input").forEach(i=>i.checked=true);
-});
+animals.forEach(a=>{markers[a.id].setOpacity(1);});
+document.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=true);
 }
 
 function hideAll(){
-animals.forEach(a=>{
-markers[a.id].setOpacity(0);
-document.querySelectorAll("input").forEach(i=>i.checked=false);
-});
+animals.forEach(a=>{markers[a.id].setOpacity(0);});
+document.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=false);
 }
 </script>
+
 </body>
 </html>
