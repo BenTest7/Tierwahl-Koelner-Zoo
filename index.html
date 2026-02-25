@@ -3,20 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kölner Zoo – interaktive Tierkarte</title>
+<title>Kölner Zoo – interaktive Tierkarte (GitHub Pages)</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Leaflet (Primary: unpkg, Fallback: jsdelivr) -->
+<link id="leafletCss" rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script id="leafletJs" src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
-html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:#0b1220;color:white;}
-.app{display:grid;grid-template-columns:320px 1fr;height:100%;}
-.sidebar{background:#121a2c;padding:15px;overflow:auto;}
-.sidebar h1{font-size:18px;margin-bottom:10px;}
-button{width:100%;margin-bottom:6px;padding:8px;border:none;border-radius:6px;cursor:pointer;}
-button:hover{background:#2a3a60;color:white;}
-.item{margin:4px 0;}
-#map{width:100%;height:100%;}
+  html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:#0b1220;color:white;}
+  .app{display:grid;grid-template-columns:320px 1fr;height:100%;}
+  .sidebar{background:#121a2c;padding:15px;overflow:auto;border-right:1px solid rgba(255,255,255,.08);}
+  .sidebar h1{font-size:18px;margin:0 0 10px;}
+  button{width:100%;margin:6px 0;padding:10px;border:none;border-radius:8px;cursor:pointer;}
+  button:hover{background:#2a3a60;color:white;}
+  .item{margin:6px 0;line-height:1.3;}
+  #map{width:100%;height:100%;background:#0f172a;}
+  .status{
+    margin-top:10px;
+    padding:10px;
+    font-size:12px;
+    color:#cbd5e1;
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:10px;
+    white-space:pre-wrap;
+  }
+  @media (max-width:900px){
+    .app{grid-template-columns:1fr;grid-template-rows:320px 1fr;}
+    .sidebar{border-right:none;border-bottom:1px solid rgba(255,255,255,.08);}
+  }
 </style>
 </head>
 
@@ -27,59 +42,148 @@ button:hover{background:#2a3a60;color:white;}
     <button onclick="showAll()">Alle anzeigen</button>
     <button onclick="hideAll()">Alle ausblenden</button>
     <div id="animalList"></div>
+    <div class="status" id="statusBox">Status: Lade…</div>
+    <div class="status" style="opacity:.85">
+      Tipp wenn die Karte leer bleibt:
+      1) Seite hart neu laden / Cache leeren
+      2) Teste einmal mit: ?v=1 am Ende der URL
+      3) Prüfe, ob unpkg.com bei dir geblockt ist (Fallback lädt dann automatisch).
+    </div>
   </div>
   <div id="map"></div>
 </div>
 
 <script>
+/** Simple on-page logger (helpful on iPad without DevTools) */
+function logStatus(msg){
+  const box=document.getElementById('statusBox');
+  box.textContent = (box.textContent ? box.textContent + "\n" : "") + msg;
+}
+
+/** If Leaflet CDN is blocked, load fallback from jsDelivr */
+function ensureLeafletLoaded(callback){
+  const start = Date.now();
+  const timer = setInterval(() => {
+    if (window.L && typeof L.map === "function"){
+      clearInterval(timer);
+      logStatus("Leaflet: OK");
+      callback();
+      return;
+    }
+    if (Date.now() - start > 1800){
+      clearInterval(timer);
+      logStatus("Leaflet: NICHT geladen → lade Fallback (jsDelivr)…");
+      // Load CSS fallback
+      const css = document.getElementById("leafletCss");
+      css.href = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css";
+      // Load JS fallback
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js";
+      s.onload = () => {
+        if (window.L) logStatus("Fallback Leaflet: OK");
+        callback();
+      };
+      s.onerror = () => logStatus("Fallback Leaflet: FEHLER (Netzwerk/CSP?)");
+      document.head.appendChild(s);
+    }
+  }, 120);
+}
+
 const animals=[
-{id:"elephant",name:"Elefanten",emoji:"🐘",lat:50.95865,lng:6.97265},
-{id:"lion",name:"Löwen",emoji:"🦁",lat:50.95905,lng:6.97395},
-{id:"giraffe",name:"Giraffen",emoji:"🦒",lat:50.95825,lng:6.97465},
-{id:"penguin",name:"Pinguine",emoji:"🐧",lat:50.95805,lng:6.97210},
-{id:"hippo",name:"Flusspferde",emoji:"🦛",lat:50.95755,lng:6.97310},
-{id:"tiger",name:"Tiger",emoji:"🐯",lat:50.95925,lng:6.97445},
-{id:"flamingo",name:"Flamingos",emoji:"🦩",lat:50.95810,lng:6.97155}
+  {id:"elephant",name:"Elefanten",emoji:"🐘",lat:50.95865,lng:6.97265},
+  {id:"lion",name:"Löwen",emoji:"🦁",lat:50.95905,lng:6.97395},
+  {id:"giraffe",name:"Giraffen",emoji:"🦒",lat:50.95825,lng:6.97465},
+  {id:"penguin",name:"Pinguine",emoji:"🐧",lat:50.95805,lng:6.97210},
+  {id:"hippo",name:"Flusspferde",emoji:"🦛",lat:50.95755,lng:6.97310},
+  {id:"tiger",name:"Tiger",emoji:"🐯",lat:50.95925,lng:6.97445},
+  {id:"flamingo",name:"Flamingos",emoji:"🦩",lat:50.95810,lng:6.97155}
 ];
 
-const map=L.map('map').setView([50.95833,6.97333],17);
-
-setTimeout(function(){map.invalidateSize();},300);
-
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-maxZoom:19,
-attribution:'© OpenStreetMap'
-}).addTo(map);
-
+let map;
 const markers={};
-animals.forEach(a=>{
-const marker=L.marker([a.lat,a.lng],{
-icon:L.divIcon({html:"<div style='font-size:22px'>"+a.emoji+"</div>",className:""}),
-opacity:0
-}).addTo(map).bindPopup(a.name);
-markers[a.id]=marker;
-});
 
-const list=document.getElementById("animalList");
-animals.forEach(a=>{
-const div=document.createElement("div");
-div.className="item";
-div.innerHTML="<label><input type='checkbox' onchange='toggleAnimal(""+a.id+"",this.checked)'> "+a.emoji+" "+a.name+"</label>";
-list.appendChild(div);
-});
+function init(){
+  try{
+    logStatus("Init: starte Karte…");
 
-function toggleAnimal(id,visible){markers[id].setOpacity(visible?1:0);}
+    map = L.map('map', { zoomControl:true }).setView([50.95833,6.97333],17);
 
+    // If the container resized (common on mobile / GitHub Pages), force recalculation
+    function fixSize(){
+      if (!map) return;
+      map.invalidateSize(true);
+    }
+    window.addEventListener("resize", fixSize);
+    setTimeout(fixSize, 50);
+    setTimeout(fixSize, 300);
+    setTimeout(fixSize, 900);
+
+    // Prefer OSM standard tiles; if blocked, try a second provider
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      maxZoom:19, attribution:'© OpenStreetMap'
+    });
+    osm.on('tileerror', () => logStatus("Tiles: FEHLER beim Laden (OSM). Versuche Alternative…"));
+
+    osm.addTo(map);
+
+    // Alternative tiles (Carto) – loaded only if OSM errors occur repeatedly
+    let tileErrors = 0;
+    osm.on('tileerror', () => {
+      tileErrors++;
+      if (tileErrors === 3){
+        logStatus("Tiles: wechsle auf Alternative (Carto)…");
+        const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+          maxZoom:19, attribution:'© OpenStreetMap, © CARTO'
+        });
+        carto.on('tileerror', ()=> logStatus("Tiles: Alternative ebenfalls FEHLER (Netzwerk?)."));
+        carto.addTo(map);
+      }
+    });
+
+    // Markers (hidden)
+    animals.forEach(a=>{
+      const marker=L.marker([a.lat,a.lng],{
+        icon:L.divIcon({html:"<div style='font-size:22px'>"+a.emoji+"</div>",className:""}),
+        opacity:0
+      }).addTo(map).bindPopup(a.name);
+      markers[a.id]=marker;
+    });
+
+    // List
+    const list=document.getElementById("animalList");
+    list.innerHTML = "";
+    animals.forEach(a=>{
+      const div=document.createElement("div");
+      div.className="item";
+      div.innerHTML="<label><input type='checkbox' onchange='toggleAnimal(""+a.id+"",this.checked)'> "+a.emoji+" "+a.name+"</label>";
+      list.appendChild(div);
+    });
+
+    logStatus("Init: fertig. Wenn die Karte leer bleibt → liegt es fast sicher an blockierten externen Ressourcen (CDN/Tiles) oder Cache.");
+  }catch(e){
+    logStatus("Init-Fehler: " + (e && e.message ? e.message : e));
+  }
+}
+
+function toggleAnimal(id,visible){ markers[id].setOpacity(visible?1:0); }
 function showAll(){
-animals.forEach(a=>{markers[a.id].setOpacity(1);});
-document.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=true);
+  animals.forEach(a=>markers[a.id].setOpacity(1));
+  document.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=true);
 }
-
 function hideAll(){
-animals.forEach(a=>{markers[a.id].setOpacity(0);});
-document.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=false);
+  animals.forEach(a=>markers[a.id].setOpacity(0));
+  document.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=false);
 }
-</script>
 
+window.addEventListener("error", (ev)=>{
+  logStatus("JS Error: " + ev.message);
+});
+
+// Start after DOM is ready and Leaflet is available
+window.addEventListener("load", ()=>{
+  logStatus("Seite geladen.");
+  ensureLeafletLoaded(init);
+});
+</script>
 </body>
 </html>
