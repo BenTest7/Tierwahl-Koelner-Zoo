@@ -3,306 +3,146 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Kölner Zoo – Tiere per Klick einblenden (2 Pläne)</title>
+<title>Kölner Zoo – Tiere per Klick (2 Karten, minimal)</title>
 <style>
-  :root{
-    --bg:#0b1220;
-    --panel:rgba(10,16,28,.76);
-    --text:#e8edf7;
-    --muted:#aab4c5;
-    --border:rgba(255,255,255,.14);
-    --red:#ef4444;
-    --green:#22c55e;
+  html,body{height:100%;margin:0;background:#0b1220;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+  .stage{height:100%;display:flex;align-items:center;justify-content:center;padding:10px;}
+  .frame{
+    position:relative;
+    width:min(1500px, 100%);
+    aspect-ratio:16/9;
+    background:#0f172a;
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:16px;
+    overflow:hidden;
   }
-  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
-  .wrap{height:100%;display:flex;align-items:center;justify-content:center;padding:12px;}
-  .frame{position:relative;width:min(1400px, 100%);aspect-ratio: 16/9;border:1px solid var(--border);
-    border-radius:16px;overflow:hidden;background:#0f172a;}
-  .hud{position:absolute;left:12px;top:12px;right:12px;max-width:520px;
-    background:var(--panel);border:1px solid rgba(255,255,255,.14);border-radius:14px;
-    padding:10px 12px;backdrop-filter: blur(6px);}
-  .hud b{display:block;font-size:14px;margin-bottom:4px;}
-  .hud .sub{font-size:12.5px;color:var(--muted);line-height:1.35;}
-  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
-  button{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:var(--text);
-    padding:8px 10px;border-radius:12px;cursor:pointer;font-weight:650;font-size:12.5px;}
-  button:hover{background:rgba(255,255,255,.10);}
-  .pill{display:inline-flex;gap:6px;align-items:center;padding:4px 8px;border-radius:999px;
-    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);font-size:12px;color:var(--muted);}
-  .list{margin-top:8px;max-height:220px;overflow:auto;border-top:1px solid rgba(255,255,255,.10);padding-top:8px;}
-  .item{display:flex;gap:10px;align-items:center;padding:6px 2px;}
-  .item input{transform: translateY(1px);}
-  .item small{color:var(--muted);}
-  .svgLayer{position:absolute;inset:0;}
-  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;}
-  @media (max-width: 900px){.frame{aspect-ratio: 4/3;} .hud{max-width:none;}}
+  .controls{
+    position:absolute; top:12px; right:12px;
+    display:flex; gap:8px;
+    z-index:5;
+  }
+  .controls button{
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(10,16,28,.55);
+    color:#e8edf7;
+    padding:8px 10px;
+    border-radius:999px;
+    cursor:pointer;
+    font-weight:650;
+    font-size:12.5px;
+    backdrop-filter: blur(6px);
+  }
+  .controls button:hover{background:rgba(10,16,28,.72);}
+  svg{position:absolute; inset:0; width:100%; height:100%;}
+  .hotspot{fill:rgba(0,0,0,0); stroke:none; cursor:pointer; pointer-events:all;}
+  body.show-hotspots .hotspot{stroke:rgba(255,255,255,.35); stroke-width:.4; fill:rgba(255,255,255,.04);}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="frame" id="frame">
-    <svg class="svgLayer" id="svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Zoo-Karte interaktiv">
-      <image href="zoo_blank.jpg" x="0" y="0" width="100" height="100" preserveAspectRatio="none"></image>
+<div class="stage">
+  <div class="frame">
+    <div class="controls">
+      <button id="btnAll">Alle anzeigen</button>
+      <button id="btnNone">Alle löschen</button>
+    </div>
+
+    <svg id="svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Zoo-Karte interaktiv">
+      <image href="zoo_blank_hd.jpg" x="0" y="0" width="100" height="100" preserveAspectRatio="none"></image>
       <defs id="defs"></defs>
       <g id="reveals"></g>
       <g id="hotspots"></g>
     </svg>
-
-    <div class="hud">
-      <b>Kölner Zoo – Tiere per Klick einblenden</b>
-      <div class="sub">
-        Basis ist der Plan <b>ohne Tiere</b>. Klickst du einen Hotspot (Kreis), wird genau dort ein Ausschnitt aus dem Plan
-        <b>mit Tieren</b> sichtbar.
-        <span style="color:var(--red);font-weight:700">Rot</span>=versteckt,
-        <span style="color:var(--green);font-weight:700">Grün</span>=sichtbar.
-      </div>
-      <div class="row">
-        <button id="btnAll">Alle anzeigen</button>
-        <button id="btnNone">Alle ausblenden</button>
-        <button id="btnLabels">Namen ein/aus</button>
-        <button id="btnEdit">Bearbeiten: AUS</button>
-        <span class="pill">Edit: Klick ins Bild = neuer Hotspot • Ziehen = verschieben • Doppelklick = umbenennen</span>
-      </div>
-      <div class="list" id="list"></div>
-      <div class="sub" style="margin-top:8px">
-        GitHub Pages: Lege <code>index.html</code>, <code>zoo_blank.jpg</code> und <code>zoo_animals.jpg</code> zusammen ins Repo.
-      </div>
-    </div>
   </div>
 </div>
 
 <script>
-const STORAGE_KEY = "koelner_zoo_hotspots_v2";
-const animalsImageHref = "zoo_animals.jpg";
-const defaultHotspots = [{"id": "elefant", "name": "Elefanten", "emoji": "🐘", "x": 42, "y": 33, "r": 3.2}, {"id": "paviane", "name": "Paviane", "emoji": "🐒", "x": 74, "y": 15, "r": 3.0}, {"id": "tiger", "name": "Tiger", "emoji": "🐯", "x": 86, "y": 28, "r": 3.0}, {"id": "flamingo", "name": "Flamingos", "emoji": "🦩", "x": 78, "y": 73, "r": 3.0}, {"id": "pinguine", "name": "Pinguine", "emoji": "🐧", "x": 52, "y": 66, "r": 3.0}, {"id": "seeloewen", "name": "Seelöwen", "emoji": "🦭", "x": 25, "y": 61, "r": 3.0}, {"id": "hippodom", "name": "Flusspferde", "emoji": "🦛", "x": 74, "y": 78, "r": 3.2}];
+const STORAGE_KEY = "koelner_zoo_minimal_v3";
+const animalsImageHref = "zoo_animals_hd.jpg";
+const defaultHotspots = [{"id": "elefant", "name": "Elefanten", "x": 43, "y": 33, "r": 6.5}, {"id": "paviane", "name": "Paviane", "x": 78, "y": 14, "r": 5.8}, {"id": "tiger", "name": "Tiger", "x": 89, "y": 29, "r": 6.0}, {"id": "flamingos", "name": "Flamingos", "x": 79, "y": 74, "r": 6.0}, {"id": "pinguine", "name": "Pinguine", "x": 52, "y": 67, "r": 6.0}, {"id": "seeloewen", "name": "Seelöwen", "x": 26, "y": 63, "r": 6.0}, {"id": "hippodom", "name": "Flusspferde", "x": 76, "y": 80, "r": 6.8}];
 
-let state = {
-  showLabels: true,
-  editMode: false,
-  hotspots: loadHotspots()
-};
+function clampNum(v,a,b){ v=Number(v); if(Number.isNaN(v)) v=a; return Math.max(a, Math.min(b,v)); }
 
+let state = loadState();
 const svg = document.getElementById("svg");
 const defs = document.getElementById("defs");
 const reveals = document.getElementById("reveals");
 const hotspotsLayer = document.getElementById("hotspots");
-const list = document.getElementById("list");
 
-function clampNum(v, a, b){
-  v = Number(v);
-  if (Number.isNaN(v)) v = a;
-  return Math.max(a, Math.min(b, v));
-}
-
-function loadHotspots(){
+function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultHotspots.map(h=>({...h, visible:false}));
+    if(!raw) return { hotspots: defaultHotspots.map(h=>({...h, visible:false})) };
     const parsed = JSON.parse(raw);
-    return parsed.map(h => ({
-      id: h.id || (crypto?.randomUUID?.() || String(Date.now())),
-      name: h.name || "Tier",
-      emoji: h.emoji || "🐾",
-      x: clampNum(h.x, 0, 100),
-      y: clampNum(h.y, 0, 100),
-      r: clampNum(h.r ?? 3.0, 1.2, 8),
-      visible: !!h.visible
-    }));
+    return {
+      hotspots: parsed.hotspots.map(h => ({
+        id: h.id || String(Date.now()),
+        name: h.name || "Tier",
+        x: clampNum(h.x,0,100),
+        y: clampNum(h.y,0,100),
+        r: clampNum(h.r ?? 6.0, 2, 14),
+        visible: !!h.visible
+      }))
+    };
   }catch(e){
-    return defaultHotspots.map(h=>({...h, visible:false}));
+    return { hotspots: defaultHotspots.map(h=>({...h, visible:false})) };
   }
 }
 
-function saveHotspots(){
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state.hotspots)); }catch(e){}
-}
+function saveState(){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){} }
 
 function makeSvgEl(tag, attrs){
   const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const [k,v] of Object.entries(attrs || {})) el.setAttribute(k, String(v));
+  for(const [k,v] of Object.entries(attrs||{})) el.setAttribute(k, String(v));
   return el;
-}
-
-function escapeHtml(s){
-  return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 }
 
 function render(){
   defs.innerHTML = "";
   reveals.innerHTML = "";
   hotspotsLayer.innerHTML = "";
-  list.innerHTML = "";
 
-  state.hotspots.forEach((h) => {
+  state.hotspots.forEach(h => {
     const clipId = "clip_" + h.id;
 
-    // clip path
     const clip = makeSvgEl("clipPath", { id: clipId });
-    clip.appendChild(makeSvgEl("circle", { cx: h.x, cy: h.y, r: h.r }));
+    clip.appendChild(makeSvgEl("circle", { cx:h.x, cy:h.y, r:h.r }));
     defs.appendChild(clip);
 
-    // revealed animals image (clipped)
-    const gReveal = makeSvgEl("g", { "data-id": h.id });
-    if (!h.visible) gReveal.style.display = "none";
-    gReveal.setAttribute("clip-path", `url(#${clipId})`);
-    gReveal.appendChild(makeSvgEl("image", {
-      href: animalsImageHref, x: 0, y: 0, width: 100, height: 100, preserveAspectRatio: "none"
-    }));
-    reveals.appendChild(gReveal);
+    if (h.visible){
+      const g = makeSvgEl("g", {});
+      g.setAttribute("clip-path", `url(#${clipId})`);
+      g.appendChild(makeSvgEl("image", {
+        href: animalsImageHref, x:0, y:0, width:100, height:100, preserveAspectRatio:"none"
+      }));
+      reveals.appendChild(g);
+    }
 
-    // hotspot + markers
-    const gHot = makeSvgEl("g", { "data-id": h.id });
-
-    const c = makeSvgEl("circle", {
-      cx: h.x, cy: h.y, r: h.r,
-      fill: "rgba(0,0,0,0)",
-      stroke: h.visible ? "var(--green)" : "var(--red)",
-      "stroke-width": 0.6,
-      cursor: "pointer"
-    });
+    const hs = makeSvgEl("circle", { cx:h.x, cy:h.y, r:h.r, class:"hotspot" });
     const title = makeSvgEl("title", {});
-    title.textContent = `${h.name} (klicken)`;
-    c.appendChild(title);
+    title.textContent = h.name;
+    hs.appendChild(title);
 
-    const foEmoji = makeSvgEl("foreignObject", { x: h.x-4, y: h.y-6, width: 8, height: 8 });
-    const dEmoji = document.createElement("div");
-    dEmoji.className = "markerEmoji";
-    dEmoji.style.display="flex";
-    dEmoji.style.alignItems="center";
-    dEmoji.style.justifyContent="center";
-    dEmoji.style.width="100%";
-    dEmoji.style.height="100%";
-    dEmoji.style.fontSize="26px";
-    dEmoji.style.filter="drop-shadow(0 8px 12px rgba(0,0,0,.45))";
-    dEmoji.style.opacity = h.visible ? "1" : "0";
-    dEmoji.textContent = h.emoji;
-    foEmoji.appendChild(dEmoji);
-
-    const foLabel = makeSvgEl("foreignObject", { x: h.x-14, y: h.y+(h.r+1.2), width: 28, height: 6 });
-    const dLabel = document.createElement("div");
-    dLabel.className = "markerLabel";
-    dLabel.style.display="flex";
-    dLabel.style.alignItems="center";
-    dLabel.style.justifyContent="center";
-    dLabel.style.width="100%";
-    dLabel.style.height="100%";
-    dLabel.style.fontSize="2.6px";
-    dLabel.style.color="white";
-    dLabel.style.background="rgba(10,16,28,.78)";
-    dLabel.style.border="0.25px solid rgba(255,255,255,.14)";
-    dLabel.style.borderRadius="999px";
-    dLabel.style.padding="0.4px 1.2px";
-    dLabel.style.whiteSpace="nowrap";
-    dLabel.style.opacity = (h.visible && state.showLabels) ? "1" : "0";
-    dLabel.textContent = h.name;
-    foLabel.appendChild(dLabel);
-
-    gHot.appendChild(c);
-    gHot.appendChild(foEmoji);
-    gHot.appendChild(foLabel);
-    hotspotsLayer.appendChild(gHot);
-
-    // Toggle on click (circle/emoji/label)
-    function toggle(){
-      h.visible = !h.visible;
-      saveHotspots();
-      render();
-    }
-    c.addEventListener("click", (e)=>{ e.preventDefault(); toggle(); });
-    dEmoji.addEventListener("click", (e)=>{ e.preventDefault(); toggle(); });
-    dLabel.addEventListener("click", (e)=>{ e.preventDefault(); toggle(); });
-
-    // Drag in edit mode
-    let dragging = false;
-    function pointerToSvgPercent(evt){
-      const rect = svg.getBoundingClientRect();
-      const px = (evt.clientX - rect.left) / rect.width;
-      const py = (evt.clientY - rect.top) / rect.height;
-      return { x: clampNum(px*100, 0, 100), y: clampNum(py*100, 0, 100) };
-    }
-    c.addEventListener("pointerdown", (evt)=>{
-      if (!state.editMode) return;
-      dragging = true;
-      evt.preventDefault();
-      c.setPointerCapture(evt.pointerId);
-    });
-    c.addEventListener("pointermove", (evt)=>{
-      if (!state.editMode || !dragging) return;
-      const p = pointerToSvgPercent(evt);
-      h.x = p.x; h.y = p.y;
-      saveHotspots();
-      render();
-    });
-    c.addEventListener("pointerup", ()=> dragging=false);
-    c.addEventListener("pointercancel", ()=> dragging=false);
-
-    // Rename on double click
-    c.addEventListener("dblclick", (e)=>{
-      if (!state.editMode) return;
+    hs.addEventListener("click", (e)=>{
       e.preventDefault();
-      const newName = prompt("Name des Tiers:", h.name);
-      if (newName !== null && newName.trim()) h.name = newName.trim();
-      const newEmoji = prompt("Emoji (optional):", h.emoji);
-      if (newEmoji !== null && newEmoji.trim()) h.emoji = newEmoji.trim();
-      const newR = prompt("Radius (1.2–8):", String(h.r));
-      if (newR !== null && String(newR).trim()) h.r = clampNum(newR, 1.2, 8);
-      saveHotspots();
+      h.visible = !h.visible;
+      saveState();
       render();
     });
-
-    // Sidebar row
-    const row = document.createElement("div");
-    row.className = "item";
-    row.innerHTML = `
-      <input type="checkbox" ${h.visible ? "checked" : ""} data-id="${h.id}">
-      <div>
-        <div><b>${h.emoji} ${escapeHtml(h.name)}</b></div>
-        <small>${Math.round(h.x)}% / ${Math.round(h.y)}% • r=${h.r.toFixed(1)}${state.editMode ? " • (Edit: Doppelklick zum Umbenennen)" : ""}</small>
-      </div>
-    `;
-    row.querySelector("input").addEventListener("change", (ev)=>{
-      h.visible = ev.target.checked;
-      saveHotspots();
-      render();
-    });
-    list.appendChild(row);
+    hotspotsLayer.appendChild(hs);
   });
 }
 
 function setAll(on){
   state.hotspots.forEach(h => h.visible = !!on);
-  saveHotspots();
+  saveState();
   render();
 }
 
 document.getElementById("btnAll").addEventListener("click", ()=> setAll(true));
 document.getElementById("btnNone").addEventListener("click", ()=> setAll(false));
-document.getElementById("btnLabels").addEventListener("click", ()=>{ state.showLabels = !state.showLabels; render(); });
-document.getElementById("btnEdit").addEventListener("click", ()=>{
-  state.editMode = !state.editMode;
-  document.getElementById("btnEdit").textContent = "Bearbeiten: " + (state.editMode ? "AN" : "AUS");
-});
 
-// Add new hotspot by clicking empty area (edit mode)
-svg.addEventListener("click", (evt)=>{
-  if (!state.editMode) return;
-  if (evt.target && evt.target.tagName && evt.target.tagName.toLowerCase() === "circle") return;
-
-  const rect = svg.getBoundingClientRect();
-  const x = clampNum(((evt.clientX - rect.left) / rect.width) * 100, 0, 100);
-  const y = clampNum(((evt.clientY - rect.top) / rect.height) * 100, 0, 100);
-
-  const name = prompt("Neues Tier – Name:", "Neues Tier");
-  if (name === null) return;
-  const emoji = (prompt("Emoji:", "🐾") || "🐾").trim() || "🐾";
-  const r = clampNum(prompt("Radius (1.2–8):", "3.0") || 3.0, 1.2, 8);
-
-  const id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "_" + Math.random().toString(16).slice(2);
-  state.hotspots.push({ id, name: name.trim() || "Tier", emoji, x, y, r, visible:false });
-  saveHotspots();
-  render();
-});
+window.addEventListener("keydown", (e)=>{ if(e.key==="Shift") document.body.classList.add("show-hotspots"); });
+window.addEventListener("keyup", (e)=>{ if(e.key==="Shift") document.body.classList.remove("show-hotspots"); });
 
 render();
 </script>
