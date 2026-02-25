@@ -3,21 +3,21 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Kölner Zoo – Presenter + Publikum</title>
+<title>Kölner Zoo – Präsentationsmodus</title>
 <style>
   :root{
     --bg:#0b1220;
-    --panel:rgba(10,16,28,.62);
-    --panel2:rgba(10,16,28,.78);
+    --panel:rgba(10,16,28,.55);
     --text:#e8edf7;
-    --muted:rgba(232,237,247,.75);
     --border:rgba(255,255,255,.14);
+    --red:#ef4444;
+    --green:#22c55e;
   }
   html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
   .stage{height:100%;display:flex;align-items:center;justify-content:center;padding:10px;}
   .frame{
     position:relative;
-    width:min(1700px, 100%);
+    width:min(1800px, 100%);
     height:100%;
     background:#0f172a;
     border:1px solid var(--border);
@@ -26,10 +26,9 @@
   }
   svg{position:absolute; inset:0; width:100%; height:100%;}
 
-  /* Presenter controls */
   .hud{
     position:absolute; top:12px; right:12px;
-    display:flex; gap:8px; flex-wrap:wrap;
+    display:flex; gap:8px;
     z-index:6;
   }
   .hud button{
@@ -41,59 +40,24 @@
     cursor:pointer;
     font-weight:650;
     font-size:12.5px;
-    backdrop-filter: blur(6px);
   }
 
-  /* Presenter list */
-  .panelList{
-    position:absolute; left:12px; top:12px;
-    width:min(300px, calc(100% - 24px));
-    max-height:calc(100% - 24px);
-    overflow:auto;
-    background:var(--panel2);
-    border:1px solid rgba(255,255,255,.14);
-    border-radius:16px;
-    padding:10px;
-    z-index:6;
-    backdrop-filter: blur(6px);
+  .hs{
+    fill: rgba(0,0,0,0);
+    stroke-width: 0.8;
+    cursor: pointer;
   }
-  .item{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:10px;
-    padding:8px 10px;
-    margin:6px 2px;
-    border-radius:14px;
-    border:1px solid rgba(255,255,255,.12);
-    cursor:pointer;
-  }
-  .left{display:flex; align-items:center; gap:10px;}
-  .name{font-weight:700; font-size:13px;}
-  .pill{
-    font-size:11.5px;
-    font-weight:800;
-    padding:5px 8px;
-    border-radius:999px;
-    border:1px solid rgba(255,255,255,.16);
-  }
-  .off{ background:rgba(239,68,68,.14); }
-  .off .pill{ background:rgba(239,68,68,.22); color:#fecaca; }
-  .on{ background:rgba(34,197,94,.14); }
-  .on .pill{ background:rgba(34,197,94,.22); color:#bbf7d0; }
+  .hs.off{ stroke: var(--red); }
+  .hs.on{ stroke: var(--green); }
 
-  /* Audience mode */
-  body.audience .hud,
-  body.audience .panelList{display:none;}
+  /* Hide hotspots and controls in audience mode */
+  body.audience .hs{display:none;}
+  body.audience .hud{display:none;}
 </style>
 </head>
 <body>
 <div class="stage">
   <div class="frame">
-    <div class="panelList" id="panelList">
-      <div id="list"></div>
-    </div>
-
     <div class="hud">
       <button id="btnOpen">Publikumsansicht öffnen</button>
       <button id="btnAll">Alle anzeigen</button>
@@ -101,86 +65,83 @@
     </div>
 
     <svg id="svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <!-- blank base -->
       <image href="zoo_blank_aligned.jpg" x="0" y="0" width="100" height="100"></image>
+
+      <!-- mask to hide giraffe/leopard label lines -->
+      <rect x="70" y="0" width="30" height="25" fill="rgba(255,255,255,0.98)"></rect>
+
       <defs id="defs"></defs>
       <g id="reveals"></g>
+      <g id="hotspots"></g>
     </svg>
   </div>
 </div>
 
 <script>
-const animalsImageHref = "zoo_animals_hd2.jpg";
-const HOTSPOTS = [{"id": "elefant", "name": "Elefanten", "emoji": "🐘", "x": 43, "y": 33, "r": 6.5}, {"id": "paviane", "name": "Paviane", "emoji": "🐒", "x": 78, "y": 14, "r": 5.8}, {"id": "tiger", "name": "Tiger", "emoji": "🐯", "x": 89, "y": 29, "r": 6.0}, {"id": "flamingos", "name": "Flamingos", "emoji": "🦩", "x": 79, "y": 74, "r": 6.0}, {"id": "pinguine", "name": "Pinguine", "emoji": "🐧", "x": 52, "y": 67, "r": 6.0}, {"id": "seeloewen", "name": "Seelöwen", "emoji": "🦭", "x": 26, "y": 63, "r": 6.0}, {"id": "hippodom", "name": "Flusspferde", "emoji": "🦛", "x": 76, "y": 80, "r": 6.8}];
-const STORAGE_KEY="zoo_sync_state_v3";
-const CHANNEL="zoo-sync-v3";
+const animalsImageHref="zoo_animals_hd2.jpg";
+const HOTSPOTS=[{"id": "elefant", "name": "Elefanten", "emoji": "🐘", "x": 43, "y": 33, "r": 5.8}, {"id": "paviane", "name": "Paviane", "emoji": "🐒", "x": 76, "y": 14, "r": 5.0}, {"id": "tiger", "name": "Tiger", "emoji": "🐯", "x": 88, "y": 29, "r": 5.0}, {"id": "flamingos", "name": "Flamingos", "emoji": "🦩", "x": 79, "y": 74, "r": 5.0}, {"id": "pinguine", "name": "Pinguine", "emoji": "🐧", "x": 52, "y": 67, "r": 5.0}, {"id": "seeloewen", "name": "Seelöwen", "emoji": "🦭", "x": 26, "y": 63, "r": 5.0}, {"id": "hippodom", "name": "Flusspferde", "emoji": "🦛", "x": 76, "y": 80, "r": 5.8}];
+const STATE_KEY="zoo_state_simple_v1";
+const CHANNEL="zoo-sync-simple-v1";
 
 const params=new URLSearchParams(location.search);
 const isAudience=params.get("audience")==="1";
 document.body.classList.toggle("audience",isAudience);
 
-let state=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{"visible":{}}');
-HOTSPOTS.forEach(h=>{if(state.visible[h.id]===undefined)state.visible[h.id]=false;});
+let visible=JSON.parse(localStorage.getItem(STATE_KEY)||"{}");
+HOTSPOTS.forEach(h=>{if(visible[h.id]===undefined)visible[h.id]=false;});
 
+const svg=document.getElementById("svg");
 const defs=document.getElementById("defs");
 const reveals=document.getElementById("reveals");
-const list=document.getElementById("list");
+const hsLayer=document.getElementById("hotspots");
 
-function svgEl(tag,a){const e=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function el(tag,a){const e=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const k in a)e.setAttribute(k,a[k]);return e;}
 
 function render(){
-  defs.innerHTML="";reveals.innerHTML="";
-  HOTSPOTS.forEach(h=>{
-    const clip="c_"+h.id;
-    const cp=svgEl("clipPath",{id:clip});
-    cp.appendChild(svgEl("circle",{cx:h.x,cy:h.y,r:h.r}));
-    defs.appendChild(cp);
-    if(state.visible[h.id]){
-      const g=svgEl("g",{"clip-path":"url(#"+clip+")"});
-      g.appendChild(svgEl("image",{href:animalsImageHref,x:0,y:0,width:100,height:100}));
-      reveals.appendChild(g);
-    }
-  });
-  if(!isAudience)renderList();
-}
+ defs.innerHTML="";reveals.innerHTML="";hsLayer.innerHTML="";
+ HOTSPOTS.forEach(h=>{
+   const on=visible[h.id];
+   const clip="c_"+h.id;
+   const cp=el("clipPath",{id:clip});
+   cp.appendChild(el("circle",{cx:h.x,cy:h.y,r:h.r}));
+   defs.appendChild(cp);
 
-function renderList(){
-  list.innerHTML="";
-  HOTSPOTS.forEach(h=>{
-    const on=state.visible[h.id];
-    const d=document.createElement("div");
-    d.className="item "+(on?"on":"off");
-    d.innerHTML=`
-      <div class="left">
-        <div style="font-size:18px">${h.emoji}</div>
-        <div class="name">${h.name}</div>
-      </div>
-      <div class="pill">${on?"AN":"AUS"}</div>`;
-    d.onclick=()=>toggle(h.id);
-    list.appendChild(d);
-  });
+   if(on){
+     const g=el("g",{"clip-path":"url(#"+clip+")"});
+     g.appendChild(el("image",{href:animalsImageHref,x:0,y:0,width:100,height:100}));
+     reveals.appendChild(g);
+   }
+
+   if(!isAudience){
+     const c=el("circle",{cx:h.x,cy:h.y,r:h.r,class:"hs "+(on?"on":"off")});
+     c.onclick=()=>toggle(h.id);
+     hsLayer.appendChild(c);
+   }
+ });
 }
 
 function toggle(id){
-  state.visible[id]=!state.visible[id];
-  sync();
+ visible[id]=!visible[id];
+ sync();
 }
 
 function sync(){
-  localStorage.setItem(STORAGE_KEY,JSON.stringify(state));
-  if(bc)bc.postMessage(state);
-  render();
+ localStorage.setItem(STATE_KEY,JSON.stringify(visible));
+ if(bc)bc.postMessage(visible);
+ render();
 }
 
 let bc=null;
-try{bc=new BroadcastChannel(CHANNEL);bc.onmessage=e=>{state=e.data;render();};}catch{}
-window.addEventListener("storage",e=>{if(e.key===STORAGE_KEY){state=JSON.parse(e.newValue);render();}});
+try{bc=new BroadcastChannel(CHANNEL);bc.onmessage=e=>{visible=e.data;render();};}catch{}
+window.addEventListener("storage",e=>{if(e.key===STATE_KEY){visible=JSON.parse(e.newValue);render();}});
 
 document.getElementById("btnOpen").onclick=()=>{
-  const u=new URL(location.href);u.searchParams.set("audience","1");
-  window.open(u,"audience");
+ const u=new URL(location.href);u.searchParams.set("audience","1");
+ window.open(u,"audience");
 };
-document.getElementById("btnAll").onclick=()=>{HOTSPOTS.forEach(h=>state.visible[h.id]=true);sync();};
-document.getElementById("btnNone").onclick=()=>{HOTSPOTS.forEach(h=>state.visible[h.id]=false);sync();};
+document.getElementById("btnAll").onclick=()=>{HOTSPOTS.forEach(h=>visible[h.id]=true);sync();};
+document.getElementById("btnNone").onclick=()=>{HOTSPOTS.forEach(h=>visible[h.id]=false);sync();};
 
 render();
 </script>
