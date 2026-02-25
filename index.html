@@ -3,28 +3,39 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Kölner Zoo – Tiere per Klick (2 Karten, minimal)</title>
+<title>Kölner Zoo – Presenter + Publikum</title>
 <style>
-  html,body{height:100%;margin:0;background:#0b1220;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+  :root{
+    --bg:#0b1220;
+    --panel:rgba(10,16,28,.62);
+    --panel2:rgba(10,16,28,.78);
+    --text:#e8edf7;
+    --muted:rgba(232,237,247,.75);
+    --border:rgba(255,255,255,.14);
+  }
+  html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
   .stage{height:100%;display:flex;align-items:center;justify-content:center;padding:10px;}
   .frame{
     position:relative;
-    width:min(1500px, 100%);
-    aspect-ratio:16/9;
+    width:min(1700px, 100%);
+    height:100%;
     background:#0f172a;
-    border:1px solid rgba(255,255,255,.14);
+    border:1px solid var(--border);
     border-radius:16px;
     overflow:hidden;
   }
-  .controls{
+  svg{position:absolute; inset:0; width:100%; height:100%;}
+
+  /* Presenter controls */
+  .hud{
     position:absolute; top:12px; right:12px;
-    display:flex; gap:8px;
-    z-index:5;
+    display:flex; gap:8px; flex-wrap:wrap;
+    z-index:6;
   }
-  .controls button{
+  .hud button{
     border:1px solid rgba(255,255,255,.14);
-    background:rgba(10,16,28,.45);
-    color:#e8edf7;
+    background:var(--panel);
+    color:var(--text);
     padding:8px 10px;
     border-radius:999px;
     cursor:pointer;
@@ -32,118 +43,144 @@
     font-size:12.5px;
     backdrop-filter: blur(6px);
   }
-  .controls button:hover{background:rgba(10,16,28,.70);}
-  svg{position:absolute; inset:0; width:100%; height:100%;}
-  .hotspot{fill:rgba(0,0,0,0); stroke:none; cursor:pointer; pointer-events:all;}
-  body.show-hotspots .hotspot{stroke:rgba(255,255,255,.35); stroke-width:.4; fill:rgba(255,255,255,.04);}
+
+  /* Presenter list */
+  .panelList{
+    position:absolute; left:12px; top:12px;
+    width:min(300px, calc(100% - 24px));
+    max-height:calc(100% - 24px);
+    overflow:auto;
+    background:var(--panel2);
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:16px;
+    padding:10px;
+    z-index:6;
+    backdrop-filter: blur(6px);
+  }
+  .item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:8px 10px;
+    margin:6px 2px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,.12);
+    cursor:pointer;
+  }
+  .left{display:flex; align-items:center; gap:10px;}
+  .name{font-weight:700; font-size:13px;}
+  .pill{
+    font-size:11.5px;
+    font-weight:800;
+    padding:5px 8px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.16);
+  }
+  .off{ background:rgba(239,68,68,.14); }
+  .off .pill{ background:rgba(239,68,68,.22); color:#fecaca; }
+  .on{ background:rgba(34,197,94,.14); }
+  .on .pill{ background:rgba(34,197,94,.22); color:#bbf7d0; }
+
+  /* Audience mode */
+  body.audience .hud,
+  body.audience .panelList{display:none;}
 </style>
 </head>
 <body>
 <div class="stage">
   <div class="frame">
-    <div class="controls">
+    <div class="panelList" id="panelList">
+      <div id="list"></div>
+    </div>
+
+    <div class="hud">
+      <button id="btnOpen">Publikumsansicht öffnen</button>
       <button id="btnAll">Alle anzeigen</button>
       <button id="btnNone">Alle löschen</button>
     </div>
 
-    <svg id="svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Zoo-Karte interaktiv">
-      <image href="zoo_blank_aligned.jpg" x="0" y="0" width="100" height="100" preserveAspectRatio="none"></image>
+    <svg id="svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <image href="zoo_blank_aligned.jpg" x="0" y="0" width="100" height="100"></image>
       <defs id="defs"></defs>
       <g id="reveals"></g>
-      <g id="hotspots"></g>
     </svg>
   </div>
 </div>
 
 <script>
-const STORAGE_KEY = "koelner_zoo_minimal_v4";
 const animalsImageHref = "zoo_animals_hd2.jpg";
-const defaultHotspots = [{"id": "elefant", "name": "Elefanten", "x": 43, "y": 33, "r": 6.5}, {"id": "paviane", "name": "Paviane", "x": 78, "y": 14, "r": 5.8}, {"id": "tiger", "name": "Tiger", "x": 89, "y": 29, "r": 6.0}, {"id": "flamingos", "name": "Flamingos", "x": 79, "y": 74, "r": 6.0}, {"id": "pinguine", "name": "Pinguine", "x": 52, "y": 67, "r": 6.0}, {"id": "seeloewen", "name": "Seelöwen", "x": 26, "y": 63, "r": 6.0}, {"id": "hippodom", "name": "Flusspferde", "x": 76, "y": 80, "r": 6.8}];
+const HOTSPOTS = [{"id": "elefant", "name": "Elefanten", "emoji": "🐘", "x": 43, "y": 33, "r": 6.5}, {"id": "paviane", "name": "Paviane", "emoji": "🐒", "x": 78, "y": 14, "r": 5.8}, {"id": "tiger", "name": "Tiger", "emoji": "🐯", "x": 89, "y": 29, "r": 6.0}, {"id": "flamingos", "name": "Flamingos", "emoji": "🦩", "x": 79, "y": 74, "r": 6.0}, {"id": "pinguine", "name": "Pinguine", "emoji": "🐧", "x": 52, "y": 67, "r": 6.0}, {"id": "seeloewen", "name": "Seelöwen", "emoji": "🦭", "x": 26, "y": 63, "r": 6.0}, {"id": "hippodom", "name": "Flusspferde", "emoji": "🦛", "x": 76, "y": 80, "r": 6.8}];
+const STORAGE_KEY="zoo_sync_state_v3";
+const CHANNEL="zoo-sync-v3";
 
-function clampNum(v,a,b){ v=Number(v); if(Number.isNaN(v)) v=a; return Math.max(a, Math.min(b,v)); }
+const params=new URLSearchParams(location.search);
+const isAudience=params.get("audience")==="1";
+document.body.classList.toggle("audience",isAudience);
 
-let state = loadState();
-const svg = document.getElementById("svg");
-const defs = document.getElementById("defs");
-const reveals = document.getElementById("reveals");
-const hotspotsLayer = document.getElementById("hotspots");
+let state=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{"visible":{}}');
+HOTSPOTS.forEach(h=>{if(state.visible[h.id]===undefined)state.visible[h.id]=false;});
 
-function loadState(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(!raw) return { hotspots: defaultHotspots.map(h=>({...h, visible:false})) };
-    const parsed = JSON.parse(raw);
-    return {
-      hotspots: parsed.hotspots.map(h => ({
-        id: h.id || String(Date.now()),
-        name: h.name || "Tier",
-        x: clampNum(h.x,0,100),
-        y: clampNum(h.y,0,100),
-        r: clampNum(h.r ?? 6.0, 2, 14),
-        visible: !!h.visible
-      }))
-    };
-  }catch(e){
-    return { hotspots: defaultHotspots.map(h=>({...h, visible:false})) };
-  }
-}
+const defs=document.getElementById("defs");
+const reveals=document.getElementById("reveals");
+const list=document.getElementById("list");
 
-function saveState(){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){} }
-
-function makeSvgEl(tag, attrs){
-  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for(const [k,v] of Object.entries(attrs||{})) el.setAttribute(k, String(v));
-  return el;
-}
+function svgEl(tag,a){const e=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const k in a)e.setAttribute(k,a[k]);return e;}
 
 function render(){
-  defs.innerHTML = "";
-  reveals.innerHTML = "";
-  hotspotsLayer.innerHTML = "";
-
-  state.hotspots.forEach(h => {
-    const clipId = "clip_" + h.id;
-
-    const clip = makeSvgEl("clipPath", { id: clipId });
-    clip.appendChild(makeSvgEl("circle", { cx:h.x, cy:h.y, r:h.r }));
-    defs.appendChild(clip);
-
-    if (h.visible){
-      const g = makeSvgEl("g", {});
-      g.setAttribute("clip-path", `url(#${clipId})`);
-      g.appendChild(makeSvgEl("image", {
-        href: animalsImageHref, x:0, y:0, width:100, height:100, preserveAspectRatio:"none"
-      }));
+  defs.innerHTML="";reveals.innerHTML="";
+  HOTSPOTS.forEach(h=>{
+    const clip="c_"+h.id;
+    const cp=svgEl("clipPath",{id:clip});
+    cp.appendChild(svgEl("circle",{cx:h.x,cy:h.y,r:h.r}));
+    defs.appendChild(cp);
+    if(state.visible[h.id]){
+      const g=svgEl("g",{"clip-path":"url(#"+clip+")"});
+      g.appendChild(svgEl("image",{href:animalsImageHref,x:0,y:0,width:100,height:100}));
       reveals.appendChild(g);
     }
+  });
+  if(!isAudience)renderList();
+}
 
-    const hs = makeSvgEl("circle", { cx:h.x, cy:h.y, r:h.r, class:"hotspot" });
-    const title = makeSvgEl("title", {});
-    title.textContent = h.name;
-    hs.appendChild(title);
-
-    hs.addEventListener("click", (e)=>{
-      e.preventDefault();
-      h.visible = !h.visible;
-      saveState();
-      render();
-    });
-    hotspotsLayer.appendChild(hs);
+function renderList(){
+  list.innerHTML="";
+  HOTSPOTS.forEach(h=>{
+    const on=state.visible[h.id];
+    const d=document.createElement("div");
+    d.className="item "+(on?"on":"off");
+    d.innerHTML=`
+      <div class="left">
+        <div style="font-size:18px">${h.emoji}</div>
+        <div class="name">${h.name}</div>
+      </div>
+      <div class="pill">${on?"AN":"AUS"}</div>`;
+    d.onclick=()=>toggle(h.id);
+    list.appendChild(d);
   });
 }
 
-function setAll(on){
-  state.hotspots.forEach(h => h.visible = !!on);
-  saveState();
+function toggle(id){
+  state.visible[id]=!state.visible[id];
+  sync();
+}
+
+function sync(){
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(state));
+  if(bc)bc.postMessage(state);
   render();
 }
 
-document.getElementById("btnAll").addEventListener("click", ()=> setAll(true));
-document.getElementById("btnNone").addEventListener("click", ()=> setAll(false));
+let bc=null;
+try{bc=new BroadcastChannel(CHANNEL);bc.onmessage=e=>{state=e.data;render();};}catch{}
+window.addEventListener("storage",e=>{if(e.key===STORAGE_KEY){state=JSON.parse(e.newValue);render();}});
 
-// Optional debug: hold Shift to see hotspots
-window.addEventListener("keydown", (e)=>{ if(e.key==="Shift") document.body.classList.add("show-hotspots"); });
-window.addEventListener("keyup", (e)=>{ if(e.key==="Shift") document.body.classList.remove("show-hotspots"); });
+document.getElementById("btnOpen").onclick=()=>{
+  const u=new URL(location.href);u.searchParams.set("audience","1");
+  window.open(u,"audience");
+};
+document.getElementById("btnAll").onclick=()=>{HOTSPOTS.forEach(h=>state.visible[h.id]=true);sync();};
+document.getElementById("btnNone").onclick=()=>{HOTSPOTS.forEach(h=>state.visible[h.id]=false);sync();};
 
 render();
 </script>
