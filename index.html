@@ -1,96 +1,381 @@
 <!doctype html>
 <html lang="de">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Kölner Zoo – Auto-Hotspots (2 Bildschirme)</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Kölner Zoo – Tierfinder (Template Matching + Inselmaske)</title>
 <style>
-  :root{--bg:#0b1220;--panel:rgba(10,16,28,.55);--text:#e8edf7;--border:rgba(255,255,255,.14);--red:#ef4444;--green:#22c55e;}
-  html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
-  .stage{height:100%;display:flex;align-items:center;justify-content:center;padding:10px;}
-  .frame{position:relative;width:min(1800px,100%);height:100%;background:#0f172a;border:1px solid var(--border);border-radius:16px;overflow:hidden;}
-  svg{position:absolute;inset:0;width:100%;height:100%;}
-  .hud{position:absolute;top:12px;right:12px;display:flex;gap:8px;z-index:6;}
-  .hud button{border:1px solid rgba(255,255,255,.14);background:var(--panel);color:var(--text);padding:8px 10px;border-radius:999px;cursor:pointer;font-weight:650;font-size:12.5px;}
-  .hs{fill:rgba(0,0,0,0);stroke-width:.75;cursor:pointer;}
-  .hs.off{stroke:var(--red);}
-  .hs.on{stroke:var(--green);}
-  body.audience .hs{display:none;}
-  body.audience .hud{display:none;}
+  :root{--bg:#0b1220;--panel:rgba(10,16,28,.72);--text:#e8edf7;--muted:rgba(232,237,247,.75);--border:rgba(255,255,255,.14);--red:#ef4444;}
+  html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--text);}
+  .wrap{height:100%;display:grid;grid-template-rows:auto 1fr;gap:10px;padding:10px;box-sizing:border-box;}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:10px;}
+  .bar button,.bar input{
+    border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06); color:var(--text);
+    padding:8px 10px;border-radius:999px;cursor:pointer;font-weight:650;font-size:12.5px;
+  }
+  .bar button:hover{background:rgba(255,255,255,.10);}
+  .bar label{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted);}
+  .bar .spacer{flex:1;}
+  .pill{padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);font-size:12px;color:var(--muted);}
+  .stage{position:relative;border:1px solid var(--border);border-radius:16px;overflow:hidden;background:#0f172a;}
+  canvas{position:absolute;inset:0;width:100%;height:100%;}
+  .hint{padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);font-size:12px;color:var(--muted);line-height:1.35}
 </style>
 </head>
 <body>
-<div class="stage"><div class="frame">
-  <div class="hud">
-    <button id="btnOpen">Publikumsansicht öffnen</button>
-    <button id="btnAll">Alle anzeigen</button>
-    <button id="btnNone">Alle löschen</button>
-    <button id="btnReset">Reset</button>
+<div class="wrap">
+  <div class="bar">
+    <button id="btnSelect">1) Tier auswählen</button>
+    <button id="btnMatch" disabled>2) Gleiche Tiere finden</button>
+    <button id="btnAddGroup" disabled>3) Als Gruppe speichern</button>
+    <button id="btnReset">Reset Auswahl</button>
+    <button id="btnExport">Export JSON</button>
+    <div class="spacer"></div>
+    <label>Empfindlichkeit
+      <input id="thr" type="range" min="0.55" max="0.90" step="0.01" value="0.74"/>
+      <span id="thrVal" class="pill">0.74</span>
+    </label>
+    <label>Max Treffer
+      <input id="maxHits" type="number" min="10" max="400" step="10" value="120" style="width:84px"/>
+    </label>
+    <span id="status" class="pill">Lade Bilder…</span>
   </div>
-  <svg id="svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-    <image href="zoo_blank_clean4_HD.png" x="0" y="0" width="100" height="100" preserveAspectRatio="none"></image>
-    <defs id="defs"></defs>
-    <g id="reveals"></g>
-    <g id="hotspots"></g>
-  </svg>
-</div></div>
+
+  <div class="stage" id="stage">
+    <canvas id="c"></canvas>
+  </div>
+
+  <div class="hint">
+    <b>Ziel:</b> Du markierst pro Tierart einmal ein Beispiel (Rechteck), dann findet das Tool alle gleichen Icons – <b>nur innerhalb der Zoo-Insel</b> (Maskierung über Blanko V4).<br>
+    <b>Workflow:</b> 1) „Tier auswählen“ → Rechteck um ein Tier-Icon ziehen → 2) „Gleiche Tiere finden“ → 3) „Als Gruppe speichern“ (z.B. <code>Flamingo</code>). Wiederholen für Elefant, Pinguin, Seelöwe, Banteng …<br>
+    Danach „Export JSON“ hier im Chat einfügen → ich baue daraus deine finale Presenter+Publikum-Seite ohne dieses Tool.
+  </div>
+</div>
 
 <script>
-const animalsImageHref="zoo_animals_hd2.jpg";
-const HOTSPOTS=[{"id": "h58", "name": "Tier 26", "emoji": "🐾", "x": 86.229, "y": 23.27, "r": 6.323}, {"id": "h350", "name": "Tier 82", "emoji": "🐾", "x": 15.958, "y": 81.895, "r": 4.401}, {"id": "h265", "name": "Tier 69", "emoji": "🐾", "x": 10.971, "y": 61.982, "r": 3.492}, {"id": "h299", "name": "Tier 72", "emoji": "🐾", "x": 16.485, "y": 67.886, "r": 2.991}, {"id": "h124", "name": "Tier 36", "emoji": "🐾", "x": 83.904, "y": 31.601, "r": 2.468}, {"id": "h57", "name": "Tier 25", "emoji": "🐾", "x": 73.053, "y": 18.611, "r": 2.366}, {"id": "h261", "name": "Tier 68", "emoji": "🐾", "x": 31.09, "y": 61.207, "r": 2.366}, {"id": "h342", "name": "Tier 81", "emoji": "🐾", "x": 62.89, "y": 80.233, "r": 2.332}, {"id": "h357", "name": "Tier 86", "emoji": "🐾", "x": 86.224, "y": 85.028, "r": 2.195}, {"id": "h3", "name": "Tier 2", "emoji": "🐾", "x": 90.448, "y": 5.136, "r": 2.024}, {"id": "h53", "name": "Tier 24", "emoji": "🐾", "x": 88.425, "y": 14.748, "r": 1.945}, {"id": "h52", "name": "Tier 23", "emoji": "🐾", "x": 84.743, "y": 14.782, "r": 1.808}, {"id": "h137", "name": "Tier 44", "emoji": "🐾", "x": 85.202, "y": 34.364, "r": 1.774}, {"id": "h332", "name": "Tier 78", "emoji": "🐾", "x": 12.684, "y": 77.74, "r": 1.763}, {"id": "h255", "name": "Tier 66", "emoji": "🐾", "x": 10.067, "y": 58.726, "r": 1.672}, {"id": "h221", "name": "Tier 60", "emoji": "🐾", "x": 84.49, "y": 51.127, "r": 1.535}, {"id": "h72", "name": "Tier 28", "emoji": "🐾", "x": 86.744, "y": 24.044, "r": 1.524}, {"id": "h307", "name": "Tier 73", "emoji": "🐾", "x": 22.683, "y": 68.095, "r": 1.524}, {"id": "h17", "name": "Tier 6", "emoji": "🐾", "x": 81.776, "y": 9.415, "r": 1.353}, {"id": "h18", "name": "Tier 7", "emoji": "🐾", "x": 84.557, "y": 9.41, "r": 1.353}, {"id": "h40", "name": "Tier 17", "emoji": "🐾", "x": 84.562, "y": 12.249, "r": 1.353}, {"id": "h42", "name": "Tier 18", "emoji": "🐾", "x": 81.775, "y": 12.246, "r": 1.353}, {"id": "h146", "name": "Tier 49", "emoji": "🐾", "x": 83.25, "y": 36.902, "r": 1.319}, {"id": "h150", "name": "Tier 53", "emoji": "🐾", "x": 85.859, "y": 37.004, "r": 1.308}, {"id": "h148", "name": "Tier 51", "emoji": "🐾", "x": 90.665, "y": 37.001, "r": 1.274}, {"id": "h128", "name": "Tier 40", "emoji": "🐾", "x": 91.278, "y": 31.673, "r": 1.251}, {"id": "h135", "name": "Tier 42", "emoji": "🐾", "x": 89.23, "y": 34.345, "r": 1.24}, {"id": "h1", "name": "Tier 1", "emoji": "🐾", "x": 88.117, "y": 4.972, "r": 1.2}, {"id": "h6", "name": "Tier 3", "emoji": "🐾", "x": 26.566, "y": 6.894, "r": 1.2}, {"id": "h8", "name": "Tier 4", "emoji": "🐾", "x": 25.55, "y": 7.018, "r": 1.2}, {"id": "h16", "name": "Tier 5", "emoji": "🐾", "x": 79.196, "y": 9.058, "r": 1.2}, {"id": "h19", "name": "Tier 8", "emoji": "🐾", "x": 87.389, "y": 9.153, "r": 1.2}, {"id": "h23", "name": "Tier 9", "emoji": "🐾", "x": 88.955, "y": 9.147, "r": 1.2}, {"id": "h25", "name": "Tier 10", "emoji": "🐾", "x": 94.891, "y": 10.004, "r": 1.2}, {"id": "h26", "name": "Tier 11", "emoji": "🐾", "x": 92.147, "y": 10.211, "r": 1.2}, {"id": "h29", "name": "Tier 12", "emoji": "🐾", "x": 90.954, "y": 10.579, "r": 1.2}, {"id": "h30", "name": "Tier 13", "emoji": "🐾", "x": 79.45, "y": 10.86, "r": 1.2}, {"id": "h32", "name": "Tier 14", "emoji": "🐾", "x": 87.549, "y": 10.904, "r": 1.2}, {"id": "h34", "name": "Tier 15", "emoji": "🐾", "x": 92.873, "y": 11.862, "r": 1.2}, {"id": "h39", "name": "Tier 16", "emoji": "🐾", "x": 91.445, "y": 11.555, "r": 1.2}, {"id": "h44", "name": "Tier 19", "emoji": "🐾", "x": 90.626, "y": 12.029, "r": 1.2}, {"id": "h47", "name": "Tier 20", "emoji": "🐾", "x": 89.894, "y": 12.563, "r": 1.2}, {"id": "h49", "name": "Tier 21", "emoji": "🐾", "x": 79.983, "y": 12.5, "r": 1.2}, {"id": "h50", "name": "Tier 22", "emoji": "🐾", "x": 86.456, "y": 12.423, "r": 1.2}, {"id": "h70", "name": "Tier 27", "emoji": "🐾", "x": 9.813, "y": 21.717, "r": 1.2}, {"id": "h73", "name": "Tier 29", "emoji": "🐾", "x": 91.404, "y": 23.219, "r": 1.2}, {"id": "h82", "name": "Tier 30", "emoji": "🐾", "x": 27.064, "y": 24.485, "r": 1.2}, {"id": "h91", "name": "Tier 31", "emoji": "🐾", "x": 28.323, "y": 25.35, "r": 1.2}, {"id": "h101", "name": "Tier 32", "emoji": "🐾", "x": 90.796, "y": 27.2, "r": 1.2}, {"id": "h103", "name": "Tier 33", "emoji": "🐾", "x": 27.491, "y": 26.63, "r": 1.2}, {"id": "h106", "name": "Tier 34", "emoji": "🐾", "x": 85.72, "y": 26.873, "r": 1.2}, {"id": "h123", "name": "Tier 35", "emoji": "🐾", "x": 80.961, "y": 31.675, "r": 1.2}, {"id": "h125", "name": "Tier 37", "emoji": "🐾", "x": 86.637, "y": 31.828, "r": 1.2}, {"id": "h126", "name": "Tier 38", "emoji": "🐾", "x": 87.988, "y": 31.684, "r": 1.2}, {"id": "h127", "name": "Tier 39", "emoji": "🐾", "x": 89.387, "y": 31.68, "r": 1.2}, {"id": "h131", "name": "Tier 41", "emoji": "🐾", "x": 92.915, "y": 32.472, "r": 1.2}, {"id": "h136", "name": "Tier 43", "emoji": "🐾", "x": 83.015, "y": 34.347, "r": 1.2}, {"id": "h138", "name": "Tier 45", "emoji": "🐾", "x": 87.471, "y": 34.353, "r": 1.2}, {"id": "h140", "name": "Tier 46", "emoji": "🐾", "x": 51.753, "y": 34.954, "r": 1.2}, {"id": "h142", "name": "Tier 47", "emoji": "🐾", "x": 90.862, "y": 35.134, "r": 1.2}, {"id": "h143", "name": "Tier 48", "emoji": "🐾", "x": 53.081, "y": 35.037, "r": 1.2}, {"id": "h147", "name": "Tier 50", "emoji": "🐾", "x": 87.589, "y": 37.008, "r": 1.2}, {"id": "h149", "name": "Tier 52", "emoji": "🐾", "x": 81.559, "y": 37.005, "r": 1.2}, {"id": "h151", "name": "Tier 54", "emoji": "🐾", "x": 88.838, "y": 37.007, "r": 1.2}, {"id": "h152", "name": "Tier 55", "emoji": "🐾", "x": 92.312, "y": 36.979, "r": 1.2}, {"id": "h156", "name": "Tier 56", "emoji": "🐾", "x": 12.792, "y": 38.595, "r": 1.2}, {"id": "h171", "name": "Tier 57", "emoji": "🐾", "x": 42.025, "y": 43.342, "r": 1.2}, {"id": "h193", "name": "Tier 58", "emoji": "🐾", "x": 36.226, "y": 46.891, "r": 1.2}, {"id": "h205", "name": "Tier 59", "emoji": "🐾", "x": 24.02, "y": 47.979, "r": 1.2}, {"id": "h222", "name": "Tier 61", "emoji": "🐾", "x": 56.857, "y": 50.934, "r": 1.2}, {"id": "h233", "name": "Tier 62", "emoji": "🐾", "x": 86.137, "y": 52.075, "r": 1.2}, {"id": "h234", "name": "Tier 63", "emoji": "🐾", "x": 38.061, "y": 52.238, "r": 1.2}, {"id": "h241", "name": "Tier 64", "emoji": "🐾", "x": 62.768, "y": 53.732, "r": 1.2}, {"id": "h243", "name": "Tier 65", "emoji": "🐾", "x": 38.523, "y": 54.298, "r": 1.2}, {"id": "h260", "name": "Tier 67", "emoji": "🐾", "x": 45.376, "y": 59.776, "r": 1.2}, {"id": "h281", "name": "Tier 70", "emoji": "🐾", "x": 90.926, "y": 63.237, "r": 1.2}, {"id": "h285", "name": "Tier 71", "emoji": "🐾", "x": 48.366, "y": 63.784, "r": 1.2}, {"id": "h316", "name": "Tier 74", "emoji": "🐾", "x": 79.784, "y": 72.914, "r": 1.2}, {"id": "h320", "name": "Tier 75", "emoji": "🐾", "x": 78.319, "y": 73.318, "r": 1.2}, {"id": "h322", "name": "Tier 76", "emoji": "🐾", "x": 19.433, "y": 73.933, "r": 1.2}, {"id": "h327", "name": "Tier 77", "emoji": "🐾", "x": 11.946, "y": 75.103, "r": 1.2}, {"id": "h333", "name": "Tier 79", "emoji": "🐾", "x": 91.995, "y": 77.337, "r": 1.2}, {"id": "h334", "name": "Tier 80", "emoji": "🐾", "x": 19.549, "y": 77.275, "r": 1.2}, {"id": "h351", "name": "Tier 83", "emoji": "🐾", "x": 67.912, "y": 80.951, "r": 1.2}, {"id": "h352", "name": "Tier 84", "emoji": "🐾", "x": 68.91, "y": 81.225, "r": 1.2}, {"id": "h354", "name": "Tier 85", "emoji": "🐾", "x": 87.244, "y": 81.716, "r": 1.2}, {"id": "h358", "name": "Tier 87", "emoji": "🐾", "x": 89.929, "y": 82.759, "r": 1.2}, {"id": "h360", "name": "Tier 88", "emoji": "🐾", "x": 65.296, "y": 83.76, "r": 1.2}, {"id": "h369", "name": "Tier 89", "emoji": "🐾", "x": 87.579, "y": 85.219, "r": 1.2}, {"id": "h370", "name": "Tier 90", "emoji": "🐾", "x": 88.927, "y": 85.201, "r": 1.2}, {"id": "h374", "name": "Tier 91", "emoji": "🐾", "x": 73.039, "y": 85.405, "r": 1.2}, {"id": "h387", "name": "Tier 92", "emoji": "🐾", "x": 85.617, "y": 88.517, "r": 1.2}, {"id": "h388", "name": "Tier 93", "emoji": "🐾", "x": 69.007, "y": 88.239, "r": 1.2}, {"id": "h392", "name": "Tier 94", "emoji": "🐾", "x": 87.679, "y": 89.005, "r": 1.2}, {"id": "h397", "name": "Tier 95", "emoji": "🐾", "x": 85.88, "y": 89.659, "r": 1.2}, {"id": "h399", "name": "Tier 96", "emoji": "🐾", "x": 84.086, "y": 91.056, "r": 1.2}, {"id": "h400", "name": "Tier 97", "emoji": "🐾", "x": 72.121, "y": 91.313, "r": 1.2}, {"id": "h401", "name": "Tier 98", "emoji": "🐾", "x": 73.101, "y": 91.871, "r": 1.2}, {"id": "h403", "name": "Tier 99", "emoji": "🐾", "x": 80.592, "y": 93.35, "r": 1.2}, {"id": "h406", "name": "Tier 100", "emoji": "🐾", "x": 79.694, "y": 93.927, "r": 1.2}];
-const STATE_KEY="zoo_state_auto_v1";
-const CHANNEL="zoo-sync-auto-v1";
+const ANIMALS_SRC = "zoo_animals_hd2.jpg";
+const BLANK_SRC   = "zoo_blank_clean4_HD.png";
 
-const params=new URLSearchParams(location.search);
-const isAudience=params.get("audience")==="1";
-document.body.classList.toggle("audience",isAudience);
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d", { willReadFrequently:true });
+const stage = document.getElementById("stage");
+const statusEl = document.getElementById("status");
 
-let visible=JSON.parse(localStorage.getItem(STATE_KEY)||"{}");
-HOTSPOTS.forEach(h=>{ if(visible[h.id]===undefined) visible[h.id]=false; });
+const btnSelect = document.getElementById("btnSelect");
+const btnMatch  = document.getElementById("btnMatch");
+const btnAddGroup = document.getElementById("btnAddGroup");
+const btnReset  = document.getElementById("btnReset");
+const btnExport = document.getElementById("btnExport");
 
-const defs=document.getElementById("defs");
-const reveals=document.getElementById("reveals");
-const hsLayer=document.getElementById("hotspots");
+const thr = document.getElementById("thr");
+const thrVal = document.getElementById("thrVal");
+const maxHitsEl = document.getElementById("maxHits");
+thr.addEventListener("input", ()=> thrVal.textContent = Number(thr.value).toFixed(2));
 
-function el(tag,a){const e=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const k in a)e.setAttribute(k,a[k]);return e;}
+let imgA = new Image(), imgB = new Image();
+imgA.crossOrigin = "anonymous";
+imgB.crossOrigin = "anonymous";
 
-function render(){
-  defs.innerHTML="";reveals.innerHTML="";hsLayer.innerHTML="";
-  HOTSPOTS.forEach(h=>{
-    const on=!!visible[h.id];
-    const clip="c_"+h.id;
-    const cp=el("clipPath",{id:clip});
-    cp.appendChild(el("circle",{cx:h.x,cy:h.y,r:h.r}));
-    defs.appendChild(cp);
+let imgW=0,imgH=0;
+let mode="idle"; // idle|select
+let sel=null;    // selection in work coords
+let hits=[];     // hits in work coords
+let groups=[];   // {name, hits:[{x,y,r,score}] } in work coords
 
-    if(on){
-      const g=el("g",{"clip-path":"url(#"+clip+")"});
-      g.appendChild(el("image",{href:animalsImageHref,x:0,y:0,width:100,height:100,preserveAspectRatio:"none"}));
-      reveals.appendChild(g);
+const WORK_W = 1500;
+let workCanvas=document.createElement("canvas");
+let workCtx=workCanvas.getContext("2d", { willReadFrequently:true });
+let blankCanvas=document.createElement("canvas");
+let blankCtx=blankCanvas.getContext("2d", { willReadFrequently:true });
+let islandMask=null; // Uint8Array workW*workH (1 inside island)
+
+function fitCanvas(){
+  const r=stage.getBoundingClientRect();
+  canvas.width = Math.max(1, Math.floor(r.width * devicePixelRatio));
+  canvas.height= Math.max(1, Math.floor(r.height * devicePixelRatio));
+  draw();
+}
+window.addEventListener("resize", fitCanvas);
+
+function draw(){
+  if(!imgW) return;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  const r = stage.getBoundingClientRect();
+  const vw=r.width, vh=r.height;
+  const arImg=imgW/imgH, arV=vw/vh;
+  let dw, dh, dx, dy;
+  if(arImg > arV){ dw=vw; dh=vw/arImg; dx=0; dy=(vh-dh)/2; }
+  else { dh=vh; dw=vh*arImg; dy=0; dx=(vw-dw)/2; }
+
+  const dpr=devicePixelRatio;
+  ctx.drawImage(imgA, dx*dpr, dy*dpr, dw*dpr, dh*dpr);
+
+  const toScreen=(x,y)=>{
+    const fx=x/workCanvas.width, fy=y/workCanvas.height;
+    return { sx:(dx+fx*dw)*dpr, sy:(dy+fy*dh)*dpr, dw, dh, dx, dy, dpr };
+  };
+
+  // existing groups (faint)
+  ctx.save();
+  ctx.strokeStyle="rgba(239,68,68,0.35)";
+  ctx.lineWidth=2*dpr;
+  for(const g of groups){
+    for(const h of g.hits){
+      const p=toScreen(h.x,h.y);
+      const rr = Math.max(6,h.r)/workCanvas.width * dw * dpr;
+      ctx.beginPath(); ctx.arc(p.sx,p.sy,rr,0,Math.PI*2); ctx.stroke();
     }
+  }
+  ctx.restore();
 
-    if(!isAudience){
-      const c=el("circle",{cx:h.x,cy:h.y,r:h.r,class:"hs "+(on?"on":"off")});
-      c.appendChild(el("title",{})).textContent=h.name;
-      c.onclick=()=>toggle(h.id);
-      hsLayer.appendChild(c);
+  // current hits (strong)
+  if(hits.length){
+    ctx.save();
+    ctx.strokeStyle="rgba(239,68,68,0.95)";
+    ctx.lineWidth=3*dpr;
+    for(const h of hits){
+      const p=toScreen(h.x,h.y);
+      const rr = Math.max(6,h.r)/workCanvas.width * dw * dpr;
+      ctx.beginPath(); ctx.arc(p.sx,p.sy,rr,0,Math.PI*2); ctx.stroke();
     }
-  });
+    ctx.restore();
+  }
+
+  // selection rectangle
+  if(sel){
+    const p0=toScreen(sel.x0,sel.y0);
+    const p1=toScreen(sel.x1,sel.y1);
+    const x=Math.min(p0.sx,p1.sx), y=Math.min(p0.sy,p1.sy);
+    const w=Math.abs(p1.sx-p0.sx), h=Math.abs(p1.sy-p0.sy);
+    ctx.save();
+    ctx.strokeStyle="rgba(255,255,255,0.95)";
+    ctx.lineWidth=2*dpr;
+    ctx.setLineDash([6*dpr,4*dpr]);
+    ctx.strokeRect(x,y,w,h);
+    ctx.restore();
+  }
 }
 
-function toggle(id){ visible[id]=!visible[id]; sync(); }
-function sync(){ localStorage.setItem(STATE_KEY,JSON.stringify(visible)); if(bc) bc.postMessage(visible); render(); }
+function screenToWork(evt){
+  const r=stage.getBoundingClientRect();
+  const vw=r.width, vh=r.height;
+  const arImg=imgW/imgH, arV=vw/vh;
+  let dw, dh, dx, dy;
+  if(arImg > arV){ dw=vw; dh=vw/arImg; dx=0; dy=(vh-dh)/2; }
+  else { dh=vh; dw=vh*arImg; dy=0; dx=(vw-dw)/2; }
+  const mx=(evt.clientX - r.left) - dx;
+  const my=(evt.clientY - r.top) - dy;
+  const fx=mx/dw, fy=my/dh;
+  return {
+    x: Math.max(0, Math.min(workCanvas.width-1, fx*workCanvas.width)),
+    y: Math.max(0, Math.min(workCanvas.height-1, fy*workCanvas.height)),
+  };
+}
 
-let bc=null;
-try{ bc=new BroadcastChannel(CHANNEL); bc.onmessage=e=>{ visible=e.data||{}; render(); }; }catch(e){}
-window.addEventListener("storage",e=>{ if(e.key===STATE_KEY){ try{ visible=JSON.parse(e.newValue||"{}"); }catch(_){} render(); } });
+let dragging=false, start=null;
+canvas.addEventListener("pointerdown",(e)=>{
+  if(mode!=="select") return;
+  dragging=true; start=screenToWork(e);
+  sel={x0:start.x,y0:start.y,x1:start.x,y1:start.y};
+  hits=[]; btnAddGroup.disabled=true;
+  draw();
+});
+canvas.addEventListener("pointermove",(e)=>{
+  if(!dragging || mode!=="select") return;
+  const p=screenToWork(e);
+  sel.x1=p.x; sel.y1=p.y;
+  draw();
+});
+canvas.addEventListener("pointerup",()=>{
+  if(mode!=="select") return;
+  dragging=false;
+  const x0=Math.min(sel.x0,sel.x1), x1=Math.max(sel.x0,sel.x1);
+  const y0=Math.min(sel.y0,sel.y1), y1=Math.max(sel.y0,sel.y1);
+  sel={x0,y0,x1,y1};
+  const w=Math.abs(x1-x0), h=Math.abs(y1-y0);
+  if(w<12 || h<12){ statusEl.textContent="Auswahl zu klein."; sel=null; btnMatch.disabled=true; }
+  else { statusEl.textContent=`Template: ${Math.round(w)}×${Math.round(h)} (Work)`; btnMatch.disabled=false; }
+  draw();
+});
 
-document.getElementById("btnOpen").onclick=()=>{ const u=new URL(location.href);u.searchParams.set("audience","1"); window.open(u,"audience"); };
-document.getElementById("btnAll").onclick=()=>{ HOTSPOTS.forEach(h=>visible[h.id]=true); sync(); };
-document.getElementById("btnNone").onclick=()=>{ HOTSPOTS.forEach(h=>visible[h.id]=false); sync(); };
-document.getElementById("btnReset").onclick=()=>{ visible={}; HOTSPOTS.forEach(h=>visible[h.id]=false); sync(); };
+btnSelect.onclick=()=>{
+  mode="select";
+  statusEl.textContent="Ziehe ein Rechteck um EIN Tier-Icon.";
+};
 
-render();
+btnReset.onclick=()=>{
+  sel=null; hits=[]; mode="idle";
+  btnMatch.disabled=true; btnAddGroup.disabled=true;
+  statusEl.textContent="Auswahl zurückgesetzt.";
+  draw();
+};
+
+function getGray(imData, w, h){
+  const out=new Float32Array(w*h);
+  const d=imData.data;
+  for(let i=0,j=0;i<d.length;i+=4,j++){
+    out[j]=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])/255.0;
+  }
+  return out;
+}
+
+function nccMatch(imgG, imgW, imgH, tplG, tw, th, step, thr, maxHits){
+  let tmean=0; for(let i=0;i<tplG.length;i++) tmean+=tplG[i]; tmean/=tplG.length;
+  let tvar=0; for(let i=0;i<tplG.length;i++){ const v=tplG[i]-tmean; tvar+=v*v; } tvar=Math.sqrt(tvar)+1e-6;
+
+  const raw=[];
+  for(let y=0;y<=imgH-th;y+=step){
+    for(let x=0;x<=imgW-tw;x+=step){
+      // enforce island mask: require center inside island
+      const cx = (x + tw/2) | 0;
+      const cy = (y + th/2) | 0;
+      if(!islandMask || islandMask[cy*imgW + cx]===0) continue;
+
+      let mean=0, idx=0;
+      for(let yy=0;yy<th;yy++){
+        let row=(y+yy)*imgW + x;
+        for(let xx=0;xx<tw;xx++,idx++) mean += imgG[row+xx];
+      }
+      mean /= (tw*th);
+
+      let num=0, wvar=0; idx=0;
+      for(let yy=0;yy<th;yy++){
+        let row=(y+yy)*imgW + x;
+        for(let xx=0;xx<tw;xx++,idx++){
+          const a=imgG[row+xx]-mean;
+          const b=tplG[idx]-tmean;
+          num += a*b;
+          wvar+= a*a;
+        }
+      }
+      wvar=Math.sqrt(wvar)+1e-6;
+      const score=num/(wvar*tvar);
+      if(score>=thr) raw.push({x:cx,y:cy,r:Math.max(tw,th)/2,score});
+    }
+  }
+
+  raw.sort((a,b)=>b.score-a.score);
+  const out=[];
+  const minDist=Math.max(tw,th)*0.55;
+  for(const h of raw){
+    if(out.length>=maxHits) break;
+    if(out.every(o => (o.x-h.x)*(o.x-h.x)+(o.y-h.y)*(o.y-h.y) > minDist*minDist)){
+      out.push(h);
+    }
+  }
+  return out;
+}
+
+btnMatch.onclick=async()=>{
+  if(!sel) return;
+  statusEl.textContent="Suche…";
+  await new Promise(r=>setTimeout(r,50));
+
+  const imgData = workCtx.getImageData(0,0,workCanvas.width,workCanvas.height);
+  const imgG = getGray(imgData, workCanvas.width, workCanvas.height);
+
+  const x0=Math.round(Math.min(sel.x0,sel.x1)), x1=Math.round(Math.max(sel.x0,sel.x1));
+  const y0=Math.round(Math.min(sel.y0,sel.y1)), y1=Math.round(Math.max(sel.y0,sel.y1));
+  const tw=Math.max(12, x1-x0), th=Math.max(12, y1-y0);
+
+  const tplData = workCtx.getImageData(x0,y0,tw,th);
+  const tplG = getGray(tplData, tw, th);
+
+  const threshold=Number(thr.value);
+  const maxHits=Math.max(10,Math.min(400,Number(maxHitsEl.value)||120));
+  const step = tw<=40 ? 2 : 3;
+
+  hits = nccMatch(imgG, workCanvas.width, workCanvas.height, tplG, tw, th, step, threshold, maxHits);
+  statusEl.textContent=`Treffer: ${hits.length}`;
+  btnAddGroup.disabled = hits.length===0;
+  draw();
+};
+
+btnAddGroup.onclick=()=>{
+  if(!hits.length) return;
+  const name = prompt("Gruppenname/Tierart (z.B. Flamingo, Elefant, Seelöwe):", "");
+  if(!name) return;
+  groups.push({name: name.trim(), hits: hits.map(h=>({...h}))});
+  hits=[]; sel=null;
+  btnMatch.disabled=true; btnAddGroup.disabled=true;
+  statusEl.textContent=`Gruppe gespeichert: ${name}`;
+  draw();
+};
+
+btnExport.onclick=async()=>{
+  // export in normalized 0..100 coords for later HTML use
+  const out = groups.map(g => ({
+    name: g.name,
+    points: g.hits.map(h => ({
+      x: +(h.x / workCanvas.width * 100).toFixed(3),
+      y: +(h.y / workCanvas.height * 100).toFixed(3),
+      r: +(h.r / workCanvas.width * 100 * 1.15).toFixed(3), // scale radius into viewBox space
+      score: +h.score.toFixed(3),
+    }))
+  }));
+  const data = JSON.stringify(out, null, 2);
+  try{ await navigator.clipboard.writeText(data); alert("JSON kopiert. Füge es hier im Chat ein."); }
+  catch(e){ prompt("JSON kopieren:", data); }
+};
+
+function buildIslandMask(){
+  // build island mask by comparing blank to its background: pixels inside island are non-background
+  const imgData = blankCtx.getImageData(0,0,blankCanvas.width, blankCanvas.height);
+  const d = imgData.data;
+  // estimate background from corners (median)
+  const sample=[];
+  const step=4;
+  const take=(sx,sy)=>{
+    for(let y=sy;y<sy+60;y+=2){
+      for(let x=sx;x<sx+60;x+=2){
+        const i=(y*blankCanvas.width + x)*4;
+        sample.push([d[i],d[i+1],d[i+2]]);
+      }
+    }
+  };
+  take(0,0); take(blankCanvas.width-60,0); take(0,blankCanvas.height-60); take(blankCanvas.width-60,blankCanvas.height-60);
+  sample.sort((a,b)=> (a[0]+a[1]+a[2]) - (b[0]+b[1]+b[2]));
+  const mid=sample[Math.floor(sample.length/2)] || [240,245,240];
+  const br=mid[0], bg=mid[1], bb=mid[2];
+
+  islandMask = new Uint8Array(blankCanvas.width*blankCanvas.height);
+  for(let y=0;y<blankCanvas.height;y++){
+    for(let x=0;x<blankCanvas.width;x++){
+      const i=(y*blankCanvas.width + x)*4;
+      const r=d[i], g=d[i+1], b=d[i+2];
+      const dist = Math.abs(r-br)+Math.abs(g-bg)+Math.abs(b-bb);
+      islandMask[y*blankCanvas.width + x] = dist > 22 ? 1 : 0;
+    }
+  }
+  statusEl.textContent="Bereit. (1) Tier auswählen)";
+}
+
+function initWork(){
+  imgW=imgA.naturalWidth; imgH=imgA.naturalHeight;
+  const scale = Math.min(1, WORK_W / imgW);
+  workCanvas.width = Math.round(imgW * scale);
+  workCanvas.height= Math.round(imgH * scale);
+  blankCanvas.width = workCanvas.width;
+  blankCanvas.height= workCanvas.height;
+  workCtx.drawImage(imgA, 0,0, workCanvas.width, workCanvas.height);
+  blankCtx.drawImage(imgB, 0,0, blankCanvas.width, blankCanvas.height);
+  buildIslandMask();
+  fitCanvas();
+}
+
+let loaded=0;
+function oneLoaded(){
+  loaded++;
+  if(loaded===2) initWork();
+}
+imgA.onload=oneLoaded;
+imgB.onload=oneLoaded;
+imgA.onerror=()=> statusEl.textContent="Konnte zoo_animals_hd2.jpg nicht laden.";
+imgB.onerror=()=> statusEl.textContent="Konnte zoo_blank_clean4_HD.png nicht laden.";
+
+imgA.src=ANIMALS_SRC;
+imgB.src=BLANK_SRC;
 </script>
 </body>
 </html>
